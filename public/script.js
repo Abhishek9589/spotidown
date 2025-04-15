@@ -4,6 +4,8 @@ let currentSessionId = null;
 
 let downloadedCount = 0;
 let totalTracks = 0;
+let startTime = null;
+let updateTimer = null;
 
 const downloadBtn = document.getElementById("download-button");
 const cancelBtn = document.getElementById("cancel-button");
@@ -24,13 +26,11 @@ document
     progressElement.style.color = "#1db954";
     counterElement.classList.add("hidden");
 
-    // UI setup
     downloadBtn.style.display = "none";
     cancelBtn.style.display = "block";
     document.body.classList.add("downloading");
     trackPanel.classList.add("active");
 
-    // Step 1: get total track count
     fetch("/playlist-info", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -41,8 +41,6 @@ document
         totalTracks = data.total || 0;
         counterElement.textContent = `0 / ${totalTracks}`;
         counterElement.classList.remove("hidden");
-
-        // Step 2: start actual download
         startDownload(url);
       })
       .catch((err) => {
@@ -58,6 +56,7 @@ function startDownload(url) {
 
   eventSource.onmessage = (event) => {
     if (downloadCanceled) return;
+
     const data = JSON.parse(event.data);
     if (data.track) {
       downloadedCount++;
@@ -66,6 +65,11 @@ function startDownload(url) {
       li.style.setProperty("--delay", `${downloadedCount * 0.04}s`);
       trackList.appendChild(li);
       counterElement.textContent = `${downloadedCount} / ${totalTracks}`;
+
+      if (!startTime) {
+        startTime = Date.now();
+        startEstimatingTime();
+      }
     }
   };
 
@@ -120,4 +124,32 @@ function resetUI() {
   counterElement.classList.add("hidden");
   downloadedCount = 0;
   totalTracks = 0;
+  startTime = null;
+
+  clearInterval(updateTimer);
+  updateTimer = null;
+}
+
+// Start interval to update time left every second
+function startEstimatingTime() {
+  updateTimer = setInterval(() => {
+    if (!startTime || downloadedCount === 0 || downloadCanceled) return;
+
+    const elapsed = (Date.now() - startTime) / 1000;
+    const avg = elapsed / downloadedCount;
+    let remaining = (totalTracks - downloadedCount) * avg;
+
+    if (remaining < 0) remaining = 0;
+    if (remaining > 3600) remaining = 3600;
+
+    progressElement.textContent = `⬇️ Downloading... ~${formatTime(
+      remaining
+    )} left`;
+  }, 1000);
+}
+
+function formatTime(seconds) {
+  const min = Math.floor(seconds / 60);
+  const sec = Math.round(seconds % 60);
+  return `${min > 0 ? min + "m " : ""}${sec}s`;
 }
