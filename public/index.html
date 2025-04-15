@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotify Playlist Downloader</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Heading -->
+    <h1 id="main-heading">Spotify Playlist Downloader</h1>
+
+    <div class="wrapper" id="wrapper">
+      <!-- Download Form -->
+      <form id="download-form">
+        <label for="playlist-url">Enter Spotify Playlist URL:</label>
+        <input
+          type="text"
+          id="playlist-url"
+          name="playlist-url"
+          placeholder="https://open.spotify.com/playlist/..."
+          required
+        />
+        <button type="submit" id="download-button">Download Playlist</button>
+        <button type="button" id="cancel-button" style="display: none">
+          Cancel Download
+        </button>
+
+        <div id="progress"></div>
+        <div id="counter" class="hidden">0 / 0</div>
+      </form>
+
+      <!-- Track List Panel -->
+      <div id="track-panel">
+        <ul id="track-list"></ul>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>

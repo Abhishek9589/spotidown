@@ -1,0 +1,156 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  background: #121212;
+  color: #fff;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  overflow-x: hidden;
+}
+
+h1 {
+  text-align: center;
+  font-size: 2.5rem;
+  color: #1db954;
+  margin: 40px auto;
+  transition: all 0.6s ease;
+}
+body.downloading h1 {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 2rem;
+  margin: 0;
+}
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: all 0.6s ease;
+  width: 100%;
+  padding: 20px;
+  gap: 30px;
+}
+body.downloading .wrapper {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-start;
+  max-width: 100%;
+  margin-top: 100px;
+  gap: 40px;
+  padding: 0 40px;
+}
+
+form {
+  background: #1e1e1e;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  max-width: 400px;
+  width: 100%;
+  transition: all 0.6s ease;
+}
+label {
+  font-weight: bold;
+  margin-bottom: 10px;
+  display: block;
+}
+input[type="text"] {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  background: #2c2c2c;
+  color: white;
+}
+button {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: background-color 0.3s ease;
+}
+#download-button {
+  background-color: #1db954;
+  color: white;
+}
+#download-button:hover {
+  background-color: #17a74a;
+}
+#cancel-button {
+  background-color: #ff4c4c;
+  color: white;
+}
+#cancel-button:hover {
+  background-color: #e04343;
+}
+
+#counter {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: bold;
+  color: #1db954;
+  transition: all 0.3s ease;
+}
+#counter.hidden {
+  display: none;
+}
+
+#track-panel {
+  flex: 1;
+  display: none;
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  max-width: calc(100% - 460px);
+}
+#track-panel.active {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#track-list {
+  display: grid;
+  grid-auto-flow: row;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  list-style: none;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+#track-list li {
+  background: #2a2a2a;
+  padding: 10px 15px;
+  border-radius: 6px;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: fadeInUp 0.4s ease forwards;
+  animation-fill-mode: both;
+  animation-delay: var(--delay);
+}
+@keyframes fadeInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#progress {
+  margin-top: 10px;
+  font-style: italic;
+  text-align: center;
+  color: #ccc;
+}
