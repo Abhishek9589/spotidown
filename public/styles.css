@@ -154,8 +154,18 @@ button {
   text-align: center;
   color: #ccc;
 }
+.track-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
 
-#progress {
-  font-size: 1rem;
-  font-weight: 500;
+.track-thumb {
+  width: 100%;
+  max-width: 150px;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }

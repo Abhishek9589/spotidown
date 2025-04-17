@@ -1,3 +1,4 @@
+// Enhanced server.js without p-limit, using manual concurrency and duplicate prevention
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -11,7 +12,6 @@ require("dotenv").config();
 
 const app = express();
 const port = 3000;
-
 const clients = [];
 const downloadSessions = {};
 
@@ -23,13 +23,11 @@ const spotifyApi = new SpotifyWebApi({
 app.use(express.json());
 app.use(express.static("public"));
 
-// 🔄 SSE for real-time track updates
 app.get("/events", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
-
   clients.push(res);
   req.on("close", () => {
     const index = clients.indexOf(res);
@@ -42,36 +40,28 @@ function broadcast(message) {
   clients.forEach((res) => res.write(data));
 }
 
-// 🆕 New endpoint to get track count
 app.post("/playlist-info", async (req, res) => {
   const playlistUrl = req.body.url;
-
   if (!playlistUrl || !playlistUrl.includes("/playlist/")) {
     return res.status(400).json({ error: "Invalid Spotify playlist URL" });
   }
-
   const playlistIdPart = playlistUrl.split("/playlist/")[1];
   const playlistId = playlistIdPart.split("?")[0];
-
   try {
     const auth = await spotifyApi.clientCredentialsGrant();
     spotifyApi.setAccessToken(auth.body["access_token"]);
-
     let offset = 0;
     const limit = 50;
     let allTracks = [];
-
     while (true) {
       const data = await spotifyApi.getPlaylistTracks(playlistId, {
         offset,
         limit,
       });
-      const items = data.body.items;
-      allTracks = allTracks.concat(items);
-      if (items.length < limit) break;
+      allTracks = allTracks.concat(data.body.items);
+      if (data.body.items.length < limit) break;
       offset += limit;
     }
-
     res.json({ total: allTracks.length });
   } catch (err) {
     console.error("Error fetching playlist info:", err.message);
@@ -79,7 +69,6 @@ app.post("/playlist-info", async (req, res) => {
   }
 });
 
-// ❌ Cancel endpoint
 app.post("/cancel", (req, res) => {
   const { sessionId } = req.body;
   if (sessionId && downloadSessions[sessionId]) {
@@ -91,22 +80,17 @@ app.post("/cancel", (req, res) => {
   }
 });
 
-// 🎧 Main download endpoint
 app.post("/download", async (req, res) => {
   const playlistUrl = req.body.url;
-
   if (!playlistUrl || !playlistUrl.includes("/playlist/")) {
     return res.status(400).json({ error: "Invalid Spotify playlist URL" });
   }
 
-  const playlistIdPart = playlistUrl.split("/playlist/")[1];
-  const playlistId = playlistIdPart.split("?")[0];
+  const playlistId = playlistUrl.split("/playlist/")[1].split("?")[0];
   const playlistName = playlistId;
   const sessionId = uuidv4();
-
   downloadSessions[sessionId] = { canceled: false };
   res.setHeader("X-Session-ID", sessionId);
-
   console.log(
     `🎬 Started download session: ${sessionId} for playlist ${playlistName}`
   );
@@ -118,60 +102,49 @@ app.post("/download", async (req, res) => {
     let offset = 0;
     const limit = 50;
     let allTracks = [];
-
     while (true) {
       const data = await spotifyApi.getPlaylistTracks(playlistId, {
         offset,
         limit,
       });
-      const items = data.body.items;
-      allTracks = allTracks.concat(items);
-      if (items.length < limit) break;
+      allTracks = allTracks.concat(data.body.items);
+      if (data.body.items.length < limit) break;
       offset += limit;
     }
 
     const downloadDir = path.join(__dirname, "downloads", playlistName);
     fs.mkdirSync(downloadDir, { recursive: true });
 
-    for (let i = 0; i < allTracks.length; i++) {
-      if (downloadSessions[sessionId]?.canceled) {
-        console.log("⛔ Download canceled mid-process.");
-        break;
+    const seen = new Set();
+    const queue = [];
+
+    for (const { track } of allTracks) {
+      const songName = `${track.name} - ${track.artists[0].name}`;
+      if (!seen.has(songName)) {
+        seen.add(songName);
+        queue.push(() => downloadTrack(track, downloadDir, sessionId));
+      }
+    }
+
+    async function runInBatches(tasks, concurrency = 10) {
+      const results = [];
+      let index = 0;
+
+      async function next() {
+        if (index >= tasks.length) return;
+        const task = tasks[index++];
+        await task();
+        await next();
       }
 
-      const track = allTracks[i].track;
-      const songName = `${track.name} - ${track.artists[0].name}`;
-      const filePath = path.join(
-        downloadDir,
-        sanitizeFilename(songName) + ".mp3"
-      );
-      const albumImageUrl = track.album.images[0]?.url;
-
-      console.log(`🎧 Downloading: ${songName}`);
-      broadcast({ track: songName });
-
-      await new Promise((resolve) => {
-        const yt = spawn("yt-dlp", [
-          `ytsearch1:${songName}`,
-          "--extract-audio",
-          "--audio-format",
-          "mp3",
-          "-o",
-          filePath,
-        ]);
-
-        yt.on("close", (code) => {
-          if (code === 0) {
-            embedThumbnail(filePath, albumImageUrl)
-              .then(() => resolve())
-              .catch(() => resolve());
-          } else {
-            console.log(`❌ Failed: ${songName}`);
-            resolve();
-          }
-        });
-      });
+      const runners = [];
+      for (let i = 0; i < concurrency; i++) {
+        runners.push(next());
+      }
+      await Promise.all(runners);
     }
+
+    await runInBatches(queue);
 
     if (downloadSessions[sessionId]?.canceled) {
       delete downloadSessions[sessionId];
@@ -196,13 +169,11 @@ app.post("/download", async (req, res) => {
     });
 
     archive.pipe(output);
-
     fs.readdirSync(downloadDir).forEach((file) => {
       if (file.endsWith(".mp3")) {
         archive.file(path.join(downloadDir, file), { name: file });
       }
     });
-
     archive.finalize();
   } catch (err) {
     console.error("❌ Error:", err.message);
@@ -213,7 +184,36 @@ app.post("/download", async (req, res) => {
 });
 
 function sanitizeFilename(name) {
-  return name.replace(/[/\\?%*:|"<>]/g, "-");
+  return name.replace(/[\/\\?%*:|"<>]/g, "-");
+}
+
+async function downloadTrack(track, downloadDir, sessionId) {
+  if (downloadSessions[sessionId]?.canceled) return;
+  const songName = `${track.name} - ${track.artists[0].name}`;
+  const filePath = path.join(downloadDir, sanitizeFilename(songName) + ".mp3");
+  const albumImageUrl = track.album.images[0]?.url;
+  console.log(`🎧 Downloading: ${songName}`);
+  broadcast({ track: songName, image: albumImageUrl });
+
+  return new Promise((resolve) => {
+    const yt = spawn("yt-dlp", [
+      `ytsearch1:${songName}`,
+      "--extract-audio",
+      "--audio-format",
+      "mp3",
+      "-o",
+      filePath,
+    ]);
+
+    yt.on("close", (code) => {
+      if (code === 0) {
+        embedThumbnail(filePath, albumImageUrl).then(resolve).catch(resolve);
+      } else {
+        console.log(`❌ Failed: ${songName}`);
+        resolve();
+      }
+    });
+  });
 }
 
 async function embedThumbnail(filePath, imageUrl) {
@@ -227,7 +227,7 @@ async function embedThumbnail(filePath, imageUrl) {
       mime: "image/jpeg",
       type: 3,
       description: "Cover",
-      imageBuffer: imageBuffer,
+      imageBuffer,
     },
   };
 

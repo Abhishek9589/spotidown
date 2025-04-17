@@ -3,16 +3,6 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "bin": "server.js",
-  "pkg": {
-    "assets": [
-      "public/**/*",
-      "downloads"
-    ],
-    "scripts": [
-      "server.js"
-    ]
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
@@ -31,6 +21,7 @@
     "fluent-ffmpeg": "^2.1.3",
     "fs-extra": "^11.3.0",
     "node-id3": "^0.2.9",
+    "p-limit": "^6.2.0",
     "sanitize-filename": "^1.6.3",
     "spotify-web-api-node": "^5.0.2",
     "uuid": "^11.1.0",
