@@ -1,4 +1,3 @@
-// Enhanced server.js without p-limit, using manual concurrency and duplicate prevention
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -45,8 +44,7 @@ app.post("/playlist-info", async (req, res) => {
   if (!playlistUrl || !playlistUrl.includes("/playlist/")) {
     return res.status(400).json({ error: "Invalid Spotify playlist URL" });
   }
-  const playlistIdPart = playlistUrl.split("/playlist/")[1];
-  const playlistId = playlistIdPart.split("?")[0];
+  const playlistId = playlistUrl.split("/playlist/")[1].split("?")[0];
   try {
     const auth = await spotifyApi.clientCredentialsGrant();
     spotifyApi.setAccessToken(auth.body["access_token"]);
@@ -95,6 +93,8 @@ app.post("/download", async (req, res) => {
     `🎬 Started download session: ${sessionId} for playlist ${playlistName}`
   );
 
+  const failedDownloads = [];
+
   try {
     const auth = await spotifyApi.clientCredentialsGrant();
     spotifyApi.setAccessToken(auth.body["access_token"]);
@@ -122,21 +122,21 @@ app.post("/download", async (req, res) => {
       const songName = `${track.name} - ${track.artists[0].name}`;
       if (!seen.has(songName)) {
         seen.add(songName);
-        queue.push(() => downloadTrack(track, downloadDir, sessionId));
+        queue.push(() =>
+          downloadTrack(track, downloadDir, sessionId, failedDownloads)
+        );
       }
     }
 
     async function runInBatches(tasks, concurrency = 10) {
       const results = [];
       let index = 0;
-
       async function next() {
         if (index >= tasks.length) return;
         const task = tasks[index++];
         await task();
         await next();
       }
-
       const runners = [];
       for (let i = 0; i < concurrency; i++) {
         runners.push(next());
@@ -150,6 +150,11 @@ app.post("/download", async (req, res) => {
       delete downloadSessions[sessionId];
       fs.rmSync(downloadDir, { recursive: true, force: true });
       return;
+    }
+
+    if (failedDownloads.length > 0) {
+      const failedPath = path.join(downloadDir, "FAILED_DOWNLOADS.txt");
+      fs.writeFileSync(failedPath, failedDownloads.join("\n"));
     }
 
     const zipPath = path.join(__dirname, `${playlistName}.zip`);
@@ -170,9 +175,7 @@ app.post("/download", async (req, res) => {
 
     archive.pipe(output);
     fs.readdirSync(downloadDir).forEach((file) => {
-      if (file.endsWith(".mp3")) {
-        archive.file(path.join(downloadDir, file), { name: file });
-      }
+      archive.file(path.join(downloadDir, file), { name: file });
     });
     archive.finalize();
   } catch (err) {
@@ -187,7 +190,7 @@ function sanitizeFilename(name) {
   return name.replace(/[\/\\?%*:|"<>]/g, "-");
 }
 
-async function downloadTrack(track, downloadDir, sessionId) {
+async function downloadTrack(track, downloadDir, sessionId, failedDownloads) {
   if (downloadSessions[sessionId]?.canceled) return;
   const songName = `${track.name} - ${track.artists[0].name}`;
   const filePath = path.join(downloadDir, sanitizeFilename(songName) + ".mp3");
@@ -207,28 +210,45 @@ async function downloadTrack(track, downloadDir, sessionId) {
 
     yt.on("close", (code) => {
       if (code === 0) {
-        embedThumbnail(filePath, albumImageUrl).then(resolve).catch(resolve);
+        embedMetadata(filePath, track, albumImageUrl)
+          .then(resolve)
+          .catch(resolve);
       } else {
         console.log(`❌ Failed: ${songName}`);
+        failedDownloads.push(songName);
         resolve();
       }
     });
   });
 }
 
-async function embedThumbnail(filePath, imageUrl) {
-  if (!imageUrl) return;
-  const imageBuffer = await axios
-    .get(imageUrl, { responseType: "arraybuffer" })
-    .then((res) => res.data);
+async function embedMetadata(filePath, track, imageUrl) {
+  const imageBuffer = imageUrl
+    ? await axios
+        .get(imageUrl, { responseType: "arraybuffer" })
+        .then((res) => res.data)
+    : null;
 
   const tags = {
-    image: {
-      mime: "image/jpeg",
-      type: 3,
-      description: "Cover",
-      imageBuffer,
-    },
+    title: track.name,
+    artist: track.artists.map((a) => a.name).join(", "),
+    album: track.album.name,
+    albumArtist: track.album.artists.map((a) => a.name).join(", "),
+    genre: track.album.genres?.[0] || "",
+    year: new Date(track.album.release_date).getFullYear().toString(),
+    trackNumber: track.track_number?.toString(),
+    partOfSet: track.disc_number?.toString(),
+    image: imageBuffer
+      ? {
+          mime: "image/jpeg",
+          type: {
+            id: 3,
+            name: "front cover",
+          },
+          description: "Cover",
+          imageBuffer,
+        }
+      : undefined,
   };
 
   NodeID3.write(tags, filePath);
