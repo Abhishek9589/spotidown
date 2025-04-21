@@ -1,22 +1,24 @@
-# Use Node.js 18 as base
-FROM node:18
+# Use Node.js 18 with Debian
+FROM node:18-slim
 
-# Install yt-dlp (Python-based tool)
+# Install yt-dlp dependencies and ffmpeg
 RUN apt-get update && \
-    apt-get install -y python3 python3-pip ffmpeg && \
-    pip3 install yt-dlp
+    apt-get install -y python3 python3-pip ffmpeg curl && \
+    pip3 install --no-cache-dir yt-dlp && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+# Set working directory
 WORKDIR /app
 
-# Copy project files
+# Copy all files
 COPY . .
 
-# Install dependencies
+# Install Node dependencies
 RUN npm install
 
-# Expose port
+# Expose the app port
 EXPOSE 3000
 
-# Start server
+# Start the app
 CMD ["node", "server.js"]
