@@ -89,9 +89,7 @@ app.post("/download", async (req, res) => {
   const sessionId = uuidv4();
   downloadSessions[sessionId] = { canceled: false };
   res.setHeader("X-Session-ID", sessionId);
-  console.log(
-    `🎬 Started download session: ${sessionId} for playlist ${playlistName}`
-  );
+  console.log(`🎬 Started download session: ${sessionId} for playlist ${playlistName}`);
 
   const failedDownloads = [];
 
@@ -122,9 +120,7 @@ app.post("/download", async (req, res) => {
       const songName = `${track.name} - ${track.artists[0].name}`;
       if (!seen.has(songName)) {
         seen.add(songName);
-        queue.push(() =>
-          downloadTrack(track, downloadDir, sessionId, failedDownloads)
-        );
+        queue.push(() => downloadTrack(track, downloadDir, sessionId, failedDownloads));
       }
     }
 
@@ -152,10 +148,14 @@ app.post("/download", async (req, res) => {
       return;
     }
 
+    // Write failed download list if needed
     if (failedDownloads.length > 0) {
       const failedPath = path.join(downloadDir, "FAILED_DOWNLOADS.txt");
       fs.writeFileSync(failedPath, failedDownloads.join("\n"));
     }
+
+    // DEBUG: Check final files
+    console.log("✅ Files in download directory before zipping:", fs.readdirSync(downloadDir));
 
     const zipPath = path.join(__dirname, `${playlistName}.zip`);
     const output = fs.createWriteStream(zipPath);
@@ -193,7 +193,6 @@ function sanitizeFilename(name) {
 async function downloadTrack(track, downloadDir, sessionId, failedDownloads) {
   if (downloadSessions[sessionId]?.canceled) return;
   const songName = `${track.name} - ${track.artists[0].name}`;
-  const filePath = path.join(downloadDir, sanitizeFilename(songName) + ".mp3");
   const albumImageUrl = track.album.images[0]?.url;
   console.log(`🎧 Downloading: ${songName}`);
   broadcast({ track: songName, image: albumImageUrl });
@@ -202,19 +201,27 @@ async function downloadTrack(track, downloadDir, sessionId, failedDownloads) {
     const yt = spawn("yt-dlp", [
       `ytsearch1:${songName}`,
       "--extract-audio",
-      "--audio-format",
-      "mp3",
-      "-o",
-      filePath,
+      "--audio-format", "mp3",
+      "-o", path.join(downloadDir, "%(title)s.%(ext)s")
     ]);
 
     yt.on("close", (code) => {
       if (code === 0) {
-        embedMetadata(filePath, track, albumImageUrl)
-          .then(resolve)
-          .catch(resolve);
+        const files = fs.readdirSync(downloadDir);
+        const mp3File = files.find(
+          (f) => f.endsWith(".mp3") && f.toLowerCase().includes(track.name.toLowerCase())
+        );
+
+        if (mp3File) {
+          const fullPath = path.join(downloadDir, mp3File);
+          embedMetadata(fullPath, track, albumImageUrl).then(resolve).catch(resolve);
+        } else {
+          console.log(`❌ No MP3 file found for ${songName}`);
+          failedDownloads.push(songName);
+          resolve();
+        }
       } else {
-        console.log(`❌ Failed: ${songName}`);
+        console.log(`❌ yt-dlp failed: ${songName}`);
         failedDownloads.push(songName);
         resolve();
       }
@@ -224,16 +231,14 @@ async function downloadTrack(track, downloadDir, sessionId, failedDownloads) {
 
 async function embedMetadata(filePath, track, imageUrl) {
   const imageBuffer = imageUrl
-    ? await axios
-        .get(imageUrl, { responseType: "arraybuffer" })
-        .then((res) => res.data)
+    ? await axios.get(imageUrl, { responseType: "arraybuffer" }).then(res => res.data)
     : null;
 
   const tags = {
     title: track.name,
-    artist: track.artists.map((a) => a.name).join(", "),
+    artist: track.artists.map(a => a.name).join(", "),
     album: track.album.name,
-    albumArtist: track.album.artists.map((a) => a.name).join(", "),
+    albumArtist: track.album.artists.map(a => a.name).join(", "),
     genre: track.album.genres?.[0] || "",
     year: new Date(track.album.release_date).getFullYear().toString(),
     trackNumber: track.track_number?.toString(),
@@ -241,14 +246,11 @@ async function embedMetadata(filePath, track, imageUrl) {
     image: imageBuffer
       ? {
           mime: "image/jpeg",
-          type: {
-            id: 3,
-            name: "front cover",
-          },
+          type: { id: 3, name: "front cover" },
           description: "Cover",
-          imageBuffer,
+          imageBuffer
         }
-      : undefined,
+      : undefined
   };
 
   NodeID3.write(tags, filePath);
